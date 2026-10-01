@@ -1113,8 +1113,33 @@ select:focus-visible,
         <div class="modal-actions" id="modalActions"></div>
     </div>
 </div>
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+
+const SUPABASE_URL = 'https://iyjypqsubbtxbnvsscdm.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_gbHG8IBUQleOXIz32QFVww_15ldBAIZ';
+const supabase = supabase.createClient(https://iyjypqsubbtxbnvsscdm.supabase.co, sb_publishable_gbHG8IBUQleOXIz32QFVww_15ldBAIZ);
+
+async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) toast('Login failed: ' + error.message, 'error');
+  else {
+    toast('Logged in!', 'success');
+    hydrateFromServer(); // Pull latest data after login
+  }
+}
+
+async function hydrateFromServer() {
+  const { data, error } = await supabase.from('transactions').select('*');
+  if (error) { console.warn('Hydration failed:', error); return; }
+  
+  // Merge server data into local state (simple strategy: server wins)
+  state.transactions = data.map(normalizeTransaction);
+  storage.set(STORAGE.TRANSACTIONS, state.transactions);
+  invalidateBalances();
+  safeRender();
+}
+
 (function() {
     'use strict';
 
@@ -1482,7 +1507,26 @@ select:focus-visible,
         }
     };
 
-    function saveTransactions() { invalidateBalances(); storage.set(STORAGE.TRANSACTIONS, state.transactions); }
+    // Wrap your existing save function
+function saveTransactions() { 
+  invalidateBalances(); 
+  storage.set(STORAGE.TRANSACTIONS, state.transactions); 
+  
+  // Fire-and-forget cloud sync
+  syncToCloud(); 
+}
+
+async function syncToCloud() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return; // Not logged in, skip sync
+  
+  // Simple strategy: upsert all local transactions
+  const { error } = await supabase
+    .from('transactions')
+    .upsert(state.transactions, { onConflict: 'id' });
+    
+  if (error) console.warn('Cloud sync failed:', error);
+}
     function saveAccounts() { invalidateBalances(); storage.set(STORAGE.ACCOUNTS, state.bankAccounts); }
     function saveCategories() { storage.set(STORAGE.CATEGORIES, state.customCategories); }
 
